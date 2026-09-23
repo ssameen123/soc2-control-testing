@@ -3,11 +3,11 @@ import pandas as pd
 from io import BytesIO
 
 # ============================================================
-# SOC 2 CONTROL TESTING SYSTEM
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
-    page_title="SOC 2 Control Testing",
+    page_title="SOC 2 Control Testing System",
     page_icon="🔐",
     layout="wide"
 )
@@ -32,8 +32,8 @@ if "sheet_name" not in st.session_state:
 st.title("🔐 SOC 2 Control Testing System")
 
 st.caption(
-    "Test a control once and synchronize the result "
-    "across CC, A, C, P and PI criteria."
+    "Centralized control testing — test each control once "
+    "and automatically synchronize results across all TSCs."
 )
 
 # ============================================================
@@ -42,15 +42,15 @@ st.caption(
 
 with st.sidebar:
 
-    st.header("📁 Audit Workbook")
+    st.header("📁 Upload SOC 2 Workbook")
 
     uploaded_file = st.file_uploader(
-        "Upload SOC 2 Excel workbook",
+        "Upload Excel file",
         type=["xlsx", "xls"]
     )
 
 # ============================================================
-# UPLOAD EXCEL
+# UPLOAD FILE
 # ============================================================
 
 if uploaded_file:
@@ -64,7 +64,7 @@ if uploaded_file:
         )
 
         st.sidebar.success(
-            "Workbook loaded successfully."
+            "Workbook loaded."
         )
 
         selected_sheet = st.sidebar.selectbox(
@@ -84,7 +84,6 @@ if uploaded_file:
 
             st.session_state.data = df
             st.session_state.sheet_name = selected_sheet
-
             st.session_state.results = {}
 
             st.rerun()
@@ -92,7 +91,7 @@ if uploaded_file:
     except Exception as e:
 
         st.error(
-            f"Unable to read workbook: {e}"
+            f"Unable to read Excel: {e}"
         )
 
 
@@ -110,11 +109,7 @@ if st.session_state.data is not None:
     # COLUMN CONFIGURATION
     # ========================================================
 
-    st.header("⚙️ Configure Your Excel Columns")
-
-    st.write(
-        "Select the columns containing your existing SOC 2 information."
-    )
+    st.header("⚙️ Column Configuration")
 
     columns = list(df.columns)
 
@@ -123,17 +118,15 @@ if st.session_state.data is not None:
     with c1:
 
         trust_id_column = st.selectbox(
-            "Existing Trust ID / TSC ID column",
-            columns,
-            key="trust_id_column"
+            "Trust ID column",
+            columns
         )
 
     with c2:
 
         control_column = st.selectbox(
-            "Control Description column",
-            columns,
-            key="control_column"
+            "Controls Description column",
+            columns
         )
 
     c3, c4 = st.columns(2)
@@ -142,16 +135,14 @@ if st.session_state.data is not None:
 
         tsc_description_column = st.selectbox(
             "TSC Description column",
-            columns,
-            key="tsc_description_column"
+            columns
         )
 
     with c4:
 
-        test_column = st.selectbox(
-            "Auditor Test / Test Procedure column",
-            columns,
-            key="test_column"
+        existing_test_column = st.selectbox(
+            "Existing Auditor Test column",
+            columns
         )
 
     # ========================================================
@@ -162,7 +153,7 @@ if st.session_state.data is not None:
         trust_id_column,
         control_column,
         tsc_description_column,
-        test_column
+        existing_test_column
     ]:
 
         df[column] = (
@@ -173,63 +164,71 @@ if st.session_state.data is not None:
         )
 
     # ========================================================
-    # TRUST CATEGORY
+    # TRUST SERVICES CRITERIA
     # ========================================================
 
     st.divider()
 
     st.header("🏷️ Trust Services Criteria")
 
-    st.write(
-        "Select the Trust Services Criteria category you want to work with."
-    )
-
-    trust_categories = [
-        "CC",
-        "A",
-        "C",
-        "P",
-        "PI"
-    ]
-
     selected_category = st.radio(
-        "Criteria Category",
-        trust_categories,
+        "Select criteria",
+        [
+            "All",
+            "CC",
+            "A",
+            "C",
+            "P",
+            "PI"
+        ],
         horizontal=True
     )
 
-    category_description = {
-
-        "CC":
-            "Common Criteria – Security",
-
-        "A":
-            "Availability",
-
-        "C":
-            "Confidentiality",
-
-        "P":
-            "Privacy",
-
-        "PI":
-            "Processing Integrity"
-    }
-
-    st.info(
-        f"Selected: **{selected_category}** — "
-        f"{category_description[selected_category]}"
-    )
-
     # ========================================================
-    # FILTER TRUST IDs
+    # FILTER CATEGORY
     # ========================================================
 
-    category_rows = df[
-        df[trust_id_column]
-        .str.upper()
-        .str.startswith(selected_category)
-    ]
+    if selected_category == "All":
+
+        working_df = df.copy()
+
+    else:
+
+        # Extract category from Trust ID.
+        #
+        # Example:
+        # CC6.1 -> CC
+        # A1.1  -> A
+        # C1.1  -> C
+        # P1.1  -> P
+        # PI1.1 -> PI
+
+        def get_category(value):
+
+            value = str(value).upper().strip()
+
+            if value.startswith("PI"):
+                return "PI"
+
+            if value.startswith("CC"):
+                return "CC"
+
+            if value.startswith("A"):
+                return "A"
+
+            if value.startswith("C"):
+                return "C"
+
+            if value.startswith("P"):
+                return "P"
+
+            return ""
+
+        working_df = df[
+            df[trust_id_column]
+            .apply(get_category)
+            == selected_category
+        ].copy()
 
     # ========================================================
     # DASHBOARD
@@ -237,359 +236,392 @@ if st.session_state.data is not None:
 
     st.divider()
 
-    st.header("📊 Audit Dashboard")
+    # Unique controls
 
-    total_rows = len(category_rows)
-
-    unique_controls = (
-        category_rows[control_column]
+    unique_control_series = (
+        working_df[control_column]
         .replace("", pd.NA)
         .dropna()
-        .nunique()
     )
 
-    tested_controls = len(
-        st.session_state.results
+    unique_controls = (
+        unique_control_series
+        .drop_duplicates()
+        .tolist()
     )
 
-    ineffective_controls = sum(
-        1
-        for value in st.session_state.results.values()
-        if value.get("result") == "Exceptions Noted"
-    )
-
-    d1, d2, d3, d4 = st.columns(4)
-
-    d1.metric(
-        "Criteria Rows",
-        total_rows
-    )
-
-    d2.metric(
-        "Unique Controls",
+    total_controls = len(
         unique_controls
     )
 
-    d3.metric(
-        "Controls Tested",
+    tested_controls = len(
+        [
+            x
+            for x in st.session_state.results
+            if x in unique_controls
+        ]
+    )
+
+    remaining_controls = (
+        total_controls -
         tested_controls
     )
 
-    d4.metric(
-        "Exceptions",
-        ineffective_controls
-    )
-
-    # ========================================================
-    # CONTROL SELECTION
-    # ========================================================
-
-    st.divider()
-
-    st.header("🧪 Control Testing")
-
-    all_controls = sorted(
+    exceptions = len(
         [
-            x for x in category_rows[control_column].unique()
-            if x
+            x
+            for x in st.session_state.results.values()
+            if x.get("result")
+            == "Exceptions Noted"
         ]
     )
 
-    search = st.text_input(
-        "🔎 Search Control",
-        placeholder="Type part of a control description..."
+    st.header("📊 Dashboard")
+
+    m1, m2, m3, m4 = st.columns(4)
+
+    m1.metric(
+        "Unique Controls",
+        total_controls
     )
 
-    filtered_controls = [
-        control
-        for control in all_controls
-        if search.lower() in control.lower()
-    ]
+    m2.metric(
+        "Tested",
+        tested_controls
+    )
 
-    if not filtered_controls:
+    m3.metric(
+        "Remaining",
+        remaining_controls
+    )
 
-        st.warning(
-            "No controls found."
-        )
-
-    else:
-
-        selected_control = st.selectbox(
-            "Select Control",
-            filtered_controls
-        )
-
-        # ====================================================
-        # FIND ALL OCCURRENCES OF CONTROL
-        # ====================================================
-
-        all_control_rows = df[
-            df[control_column] == selected_control
-        ]
-
-        # ====================================================
-        # FIND CRITERIA MAPPINGS
-        # ====================================================
-
-        mapped_rows = all_control_rows[
-            all_control_rows[trust_id_column]
-            .str.upper()
-            .str.startswith(selected_category)
-        ]
-
-        # ====================================================
-        # CONTROL INFORMATION
-        # ====================================================
-
-        st.subheader(
-            "📌 Control Information"
-        )
-
-        st.markdown(
-            f"**Control:** {selected_control}"
-        )
-
-        st.write(
-            f"This control occurs "
-            f"**{len(all_control_rows)} time(s)** "
-            f"in the workbook."
-        )
-
-        # ====================================================
-        # CRITERIA MAPPINGS
-        # ====================================================
-
-        st.markdown(
-            "### Trust IDs mapped to this control"
-        )
-
-        if len(mapped_rows) > 0:
-
-            for trust_id in mapped_rows[
-                trust_id_column
-            ].unique():
-
-                st.write(
-                    f"• **{trust_id}**"
-                )
-
-        # ====================================================
-        # SHOW ALL CRITERIA OCCURRENCES
-        # ====================================================
-
-        with st.expander(
-            "🔍 View all occurrences of this control"
-        ):
-
-            display_columns = [
-                trust_id_column,
-                tsc_description_column,
-                control_column,
-                test_column
-            ]
-
-            st.dataframe(
-                all_control_rows[
-                    display_columns
-                ],
-                use_container_width=True
-            )
-
-        # ====================================================
-        # CENTRALIZED TEST
-        # ====================================================
-
-        st.divider()
-
-        st.subheader(
-            "🧪 Test This Control Once"
-        )
-
-        existing = st.session_state.results.get(
-            selected_control
-        )
-
-        if existing:
-
-            st.success(
-                "This control has already been tested."
-            )
-
-            st.info(
-                "Any change made here will be reflected "
-                "in every occurrence of this control."
-            )
-
-        # ====================================================
-        # RESULT
-        # ====================================================
-
-        result_options = [
-            "No Exceptions Noted",
-            "Exceptions Noted",
-            "Not Applicable",
-            "Unable to Test"
-        ]
-
-        default_result = (
-            existing["result"]
-            if existing
-            else "No Exceptions Noted"
-        )
-
-        result = st.selectbox(
-            "Results",
-            result_options,
-            index=result_options.index(
-                default_result
-            )
-        )
-
-        # ====================================================
-        # EVIDENCE
-        # ====================================================
-
-        evidence = st.text_area(
-            "Evidence Reviewed",
-            value=(
-                existing["evidence"]
-                if existing
-                else ""
-            ),
-            placeholder=(
-                "Example: Load balancer configuration, "
-                "AWS console screenshots, compliance "
-                "platform evidence..."
-            )
-        )
-
-        # ====================================================
-        # AUDITOR TEST
-        # ====================================================
-
-        auditor_test = st.text_area(
-            "Tests Performed by The Auditor",
-            value=(
-                existing["auditor_test"]
-                if existing
-                else ""
-            ),
-            placeholder=(
-                "Describe the audit procedure performed..."
-            )
-        )
-
-        # ====================================================
-        # COMMENTS
-        # ========================================================
-
-        comments = st.text_area(
-            "Auditor Comments",
-            value=(
-                existing["comments"]
-                if existing
-                else ""
-            ),
-            placeholder=(
-                "Enter additional audit observations..."
-            )
-        )
-
-        # ====================================================
-        # SAVE RESULT
-        # ========================================================
-
-        if st.button(
-            "💾 SAVE CONTROL TEST",
-            type="primary",
-            use_container_width=True
-        ):
-
-            st.session_state.results[
-                selected_control
-            ] = {
-
-                "result":
-                    result,
-
-                "evidence":
-                    evidence,
-
-                "auditor_test":
-                    auditor_test,
-
-                "comments":
-                    comments,
-
-                "category":
-                    selected_category,
-
-                "trust_ids":
-                    list(
-                        all_control_rows[
-                            trust_id_column
-                        ].unique()
-                    )
-            }
-
-            st.success(
-                f"Control tested successfully: "
-                f"{selected_control}"
-            )
-
-            st.rerun()
+    m4.metric(
+        "Exceptions",
+        exceptions
+    )
 
     # ========================================================
-    # CENTRALIZED RESULTS
+    # CONTROL TESTING REGISTER
     # ========================================================
 
     st.divider()
 
     st.header(
-        "📋 Centralized Control Results"
+        "🧪 Control Testing Register"
     )
 
-    result_rows = []
+    st.write(
+        "Each control appears only once. "
+        "Enter the auditor test and result directly "
+        "against the control."
+    )
 
-    for control, result_data in (
-        st.session_state.results.items()
-    ):
+    # ========================================================
+    # SEARCH
+    # ========================================================
 
-        result_rows.append({
+    search = st.text_input(
+        "🔎 Search controls",
+        placeholder="Search control description..."
+    )
+
+    if search:
+
+        display_controls = [
+            x
+            for x in unique_controls
+            if search.lower() in x.lower()
+        ]
+
+    else:
+
+        display_controls = unique_controls
+
+    # ========================================================
+    # CREATE TESTING TABLE
+    # ========================================================
+
+    testing_rows = []
+
+    for control in display_controls:
+
+        # All rows belonging to this control
+
+        control_rows = working_df[
+            working_df[control_column]
+            == control
+        ]
+
+        # ----------------------------------------------------
+        # Trust IDs
+        # ----------------------------------------------------
+
+        trust_ids = (
+            control_rows[
+                trust_id_column
+            ]
+            .drop_duplicates()
+            .tolist()
+        )
+
+        # ----------------------------------------------------
+        # TSC descriptions
+        # ----------------------------------------------------
+
+        tsc_descriptions = (
+            control_rows[
+                tsc_description_column
+            ]
+            .drop_duplicates()
+            .tolist()
+        )
+
+        # ----------------------------------------------------
+        # Existing test
+        # ----------------------------------------------------
+
+        existing_tests = (
+            control_rows[
+                existing_test_column
+            ]
+            .replace("", pd.NA)
+            .dropna()
+            .drop_duplicates()
+            .tolist()
+        )
+
+        # ----------------------------------------------------
+        # Previous centralized result
+        # ----------------------------------------------------
+
+        saved = st.session_state.results.get(
+            control,
+            {}
+        )
+
+        if saved:
+
+            auditor_test = saved.get(
+                "auditor_test",
+                ""
+            )
+
+            result = saved.get(
+                "result",
+                "Not Tested"
+            )
+
+        elif existing_tests:
+
+            auditor_test = existing_tests[0]
+
+            result = "Not Tested"
+
+        else:
+
+            auditor_test = ""
+
+            result = "Not Tested"
+
+        # ----------------------------------------------------
+        # Build row
+        # ----------------------------------------------------
+
+        testing_rows.append({
 
             "Control Description":
                 control,
 
-            "Trust Category":
-                result_data["category"],
-
             "Trust IDs":
                 ", ".join(
-                    result_data["trust_ids"]
+                    trust_ids
                 ),
 
-            "Results":
-                result_data["result"],
+            "TSC Description":
+                " | ".join(
+                    tsc_descriptions
+                ),
 
-            "Evidence":
-                result_data["evidence"]
+            "Tests Performed by The Auditor":
+                auditor_test,
+
+            "Results":
+                result
         })
 
-    if result_rows:
+    # ========================================================
+    # TESTING DATAFRAME
+    # ========================================================
 
-        results_df = pd.DataFrame(
-            result_rows
+    testing_df = pd.DataFrame(
+        testing_rows
+    )
+
+    # ========================================================
+    # DISPLAY TABLE
+    # ========================================================
+
+    if len(testing_df) > 0:
+
+        edited_df = st.data_editor(
+
+            testing_df,
+
+            use_container_width=True,
+
+            hide_index=True,
+
+            num_rows="fixed",
+
+            column_config={
+
+                "Control Description":
+                    st.column_config.TextColumn(
+                        "Controls Description",
+                        disabled=True,
+                        width="large"
+                    ),
+
+                "Trust IDs":
+                    st.column_config.TextColumn(
+                        "Trust ID(s)",
+                        disabled=True,
+                        width="medium"
+                    ),
+
+                "TSC Description":
+                    st.column_config.TextColumn(
+                        "TSC Description",
+                        disabled=True,
+                        width="large"
+                    ),
+
+                "Tests Performed by The Auditor":
+                    st.column_config.TextColumn(
+                        "Tests Performed by The Auditor",
+                        width="large"
+                    ),
+
+                "Results":
+                    st.column_config.SelectboxColumn(
+
+                        "Results",
+
+                        options=[
+                            "Not Tested",
+                            "No Exceptions Noted",
+                            "Exceptions Noted",
+                            "Not Applicable",
+                            "Unable to Test"
+                        ],
+
+                        width="medium"
+                    )
+            },
+
+            key="control_testing_editor"
         )
 
-        st.dataframe(
-            results_df,
+        # ====================================================
+        # SAVE ALL TESTS
+        # ====================================================
+
+        st.divider()
+
+        if st.button(
+            "💾 SAVE ALL CONTROL TESTS",
+            type="primary",
             use_container_width=True
-        )
+        ):
+
+            for _, row in edited_df.iterrows():
+
+                control = (
+                    row[
+                        "Control Description"
+                    ]
+                )
+
+                st.session_state.results[
+                    control
+                ] = {
+
+                    "auditor_test":
+                        row[
+                            "Tests Performed by The Auditor"
+                        ],
+
+                    "result":
+                        row[
+                            "Results"
+                        ],
+
+                    "trust_ids":
+                        row[
+                            "Trust IDs"
+                        ],
+
+                    "tsc_description":
+                        row[
+                            "TSC Description"
+                        ]
+                }
+
+            st.success(
+                "All control testing results saved."
+            )
+
+            st.rerun()
 
     else:
 
-        st.info(
-            "No controls tested yet."
+        st.warning(
+            "No controls found."
+        )
+
+    # ========================================================
+    # CONTROL TESTING SUMMARY
+    # ========================================================
+
+    st.divider()
+
+    st.header(
+        "📋 Testing Summary"
+    )
+
+    summary_rows = []
+
+    for control in unique_controls:
+
+        saved = (
+            st.session_state.results.get(
+                control
+            )
+        )
+
+        if saved:
+
+            summary_rows.append({
+
+                "Control":
+                    control,
+
+                "Result":
+                    saved[
+                        "result"
+                    ]
+            })
+
+    if summary_rows:
+
+        summary_df = pd.DataFrame(
+            summary_rows
+        )
+
+        st.dataframe(
+            summary_df,
+            use_container_width=True,
+            hide_index=True
         )
 
     # ========================================================
@@ -599,13 +631,18 @@ if st.session_state.data is not None:
     st.divider()
 
     st.header(
-        "📥 Generate SOC 2 Audit Excel"
+        "📥 Export SOC 2 Audit Excel"
     )
 
     if st.button(
         "Generate Final Excel",
-        type="primary"
+        type="primary",
+        use_container_width=True
     ):
+
+        # ----------------------------------------------------
+        # START WITH ORIGINAL DATA
+        # ----------------------------------------------------
 
         output_df = df.copy()
 
@@ -614,7 +651,9 @@ if st.session_state.data is not None:
         # ----------------------------------------------------
 
         output_df["Trust ID"] = (
-            output_df[trust_id_column]
+            output_df[
+                trust_id_column
+            ]
         )
 
         output_df["TSC Description"] = (
@@ -631,48 +670,46 @@ if st.session_state.data is not None:
 
         output_df[
             "Tests Performed by The Auditor"
-        ] = (
-            output_df[
-                test_column
-            ]
-        )
+        ] = ""
 
         output_df["Results"] = ""
 
         # ----------------------------------------------------
-        # APPLY CENTRALIZED RESULTS
+        # APPLY CENTRALIZED TESTING
         # ----------------------------------------------------
 
         for index, row in output_df.iterrows():
 
-            control = row[
-                control_column
-            ]
-
-            if control in st.session_state.results:
-
-                result_data = (
-                    st.session_state.results[
-                        control
-                    ]
-                )
-
-                output_df.at[
-                    index,
-                    "Results"
-                ] = result_data[
-                    "result"
+            control = (
+                row[
+                    control_column
                 ]
+            )
+
+            saved = (
+                st.session_state.results.get(
+                    control
+                )
+            )
+
+            if saved:
 
                 output_df.at[
                     index,
                     "Tests Performed by The Auditor"
-                ] = result_data[
+                ] = saved[
                     "auditor_test"
                 ]
 
+                output_df.at[
+                    index,
+                    "Results"
+                ] = saved[
+                    "result"
+                ]
+
         # ----------------------------------------------------
-        # FINAL OUTPUT COLUMNS
+        # FINAL COLUMNS
         # ----------------------------------------------------
 
         final_columns = [
@@ -693,7 +730,7 @@ if st.session_state.data is not None:
         ].copy()
 
         # ----------------------------------------------------
-        # EXCEL CREATION
+        # EXCEL FILE
         # ----------------------------------------------------
 
         excel_output = BytesIO()
@@ -703,23 +740,55 @@ if st.session_state.data is not None:
             engine="openpyxl"
         ) as writer:
 
-            # Main audit report
-
             final_df.to_excel(
                 writer,
-                index=False,
-                sheet_name="SOC 2 Audit Results"
+                sheet_name="SOC 2 Audit Results",
+                index=False
             )
 
-            # Centralized control testing
+            # Unique control register
 
-            if result_rows:
+            control_register = pd.DataFrame(
+                [
+                    {
+                        "Controls Description":
+                            control,
 
-                results_df.to_excel(
-                    writer,
-                    index=False,
-                    sheet_name="Control Test Register"
-                )
+                        "Trust IDs":
+                            value.get(
+                                "trust_ids",
+                                ""
+                            ),
+
+                        "TSC Description":
+                            value.get(
+                                "tsc_description",
+                                ""
+                            ),
+
+                        "Tests Performed by The Auditor":
+                            value.get(
+                                "auditor_test",
+                                ""
+                            ),
+
+                        "Results":
+                            value.get(
+                                "result",
+                                ""
+                            )
+                    }
+
+                    for control, value
+                    in st.session_state.results.items()
+                ]
+            )
+
+            control_register.to_excel(
+                writer,
+                sheet_name="Control Testing Register",
+                index=False
+            )
 
         excel_output.seek(0)
 
@@ -733,20 +802,18 @@ if st.session_state.data is not None:
 
             data=excel_output,
 
-            file_name=(
-                "SOC2_Audit_Report.xlsx"
-            ),
+            file_name=
+                "SOC2_Audit_Results.xlsx",
 
-            mime=(
+            mime=
                 "application/vnd.openxmlformats-officedocument."
-                "spreadsheetml.sheet"
-            ),
+                "spreadsheetml.sheet",
 
             use_container_width=True
         )
 
         st.success(
-            "Your SOC 2 audit Excel has been generated."
+            "Final SOC 2 Excel is ready."
         )
 
 else:
@@ -757,49 +824,27 @@ else:
 
     st.info(
         "👈 Upload your SOC 2 Excel workbook "
-        "from the sidebar to begin."
+        "from the sidebar."
     )
 
     st.markdown(
         """
-        ## How the system works
+        ## 🔐 SOC 2 Control Testing System
 
-        ### 1️⃣ Upload
+        ### Features
 
-        Upload your existing SOC 2 workbook.
+        **CC / A / C / P / PI selection**
 
-        ### 2️⃣ Select Trust Services Criteria
+        **One occurrence of each control in the testing register**
 
-        Choose:
+        **Control description shown side-by-side with testing**
 
-        - **CC — Common Criteria**
-        - **A — Availability**
-        - **C — Confidentiality**
-        - **P — Privacy**
-        - **PI — Processing Integrity**
+        **Auditor test procedure editable directly in the table**
 
-        ### 3️⃣ Select a control
+        **Result selectable directly in the table**
 
-        The system finds every occurrence of that control.
+        **One test automatically synchronized to every occurrence**
 
-        ### 4️⃣ Test once
-
-        Enter the auditor's testing procedure,
-        evidence and result once.
-
-        ### 5️⃣ Synchronize
-
-        The same result is automatically applied
-        to every occurrence of that control.
-
-        ### 6️⃣ Export
-
-        Generate a clean SOC 2 audit workbook with:
-
-        - Trust ID
-        - TSC Description
-        - Controls Description
-        - Tests Performed by The Auditor
-        - Results
+        **Final SOC 2 Excel report generated automatically**
         """
     )
